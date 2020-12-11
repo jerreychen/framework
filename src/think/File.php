@@ -17,6 +17,7 @@ use think\exception\FileException;
 
 /**
  * 文件上传类
+ * @package think
  */
 class File extends SplFileInfo
 {
@@ -53,12 +54,22 @@ class File extends SplFileInfo
         return $this->hash[$type];
     }
 
-    public function md5()
+    /**
+     * 获取文件的MD5值
+     * @access public
+     * @return string
+     */
+    public function md5(): string
     {
         return $this->hash('md5');
     }
 
-    public function sha1()
+    /**
+     * 获取文件的SHA1值
+     * @access public
+     * @return string
+     */
+    public function sha1(): string
     {
         return $this->hash('sha1');
     }
@@ -79,23 +90,23 @@ class File extends SplFileInfo
      * 移动文件
      * @access public
      * @param string      $directory 保存路径
-     * @param string|bool $name      保存的文件名
+     * @param string|null $name      保存的文件名
      * @return File
      */
-    public function move(string $directory, $name = null)
+    public function move(string $directory, string $name = null): File
     {
         $target = $this->getTargetFile($directory, $name);
 
         set_error_handler(function ($type, $msg) use (&$error) {
             $error = $msg;
         });
-        $renamed = rename($this->getPathname(), $target);
+        $renamed = rename($this->getPathname(), (string) $target);
         restore_error_handler();
         if (!$renamed) {
             throw new FileException(sprintf('Could not move the file "%s" to "%s" (%s)', $this->getPathname(), $target, strip_tags($error)));
         }
 
-        @chmod($target, 0666 & ~umask());
+        @chmod((string) $target, 0666 & ~umask());
 
         return $target;
     }
@@ -106,7 +117,7 @@ class File extends SplFileInfo
      * @param null|string $name
      * @return File
      */
-    protected function getTargetFile($directory, $name = null)
+    protected function getTargetFile(string $directory, string $name = null): File
     {
         if (!is_dir($directory)) {
             if (false === @mkdir($directory, 0777, true) && !is_dir($directory)) {
@@ -123,10 +134,10 @@ class File extends SplFileInfo
 
     /**
      * 获取文件名
-     * @param $name
-     * @return bool|mixed|string
+     * @param string $name
+     * @return string
      */
-    protected function getName($name)
+    protected function getName(string $name): string
     {
         $originalName = str_replace('\\', '/', $name);
         $pos          = strrpos($originalName, '/');
@@ -139,18 +150,18 @@ class File extends SplFileInfo
      * 文件扩展名
      * @return string
      */
-    public function extension()
+    public function extension(): string
     {
         return $this->getExtension();
     }
 
     /**
      * 自动生成文件名
-     * @access protected
+     * @access public
      * @param string|\Closure $rule
      * @return string
      */
-    public function hashName($rule = 'date'): string
+    public function hashName($rule = ''): string
     {
         if (!$this->hashName) {
             if ($rule instanceof \Closure) {

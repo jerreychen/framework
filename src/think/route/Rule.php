@@ -14,14 +14,13 @@ namespace think\route;
 
 use Closure;
 use think\Container;
+use think\middleware\AllowCrossDomain;
+use think\middleware\CheckRequestCache;
+use think\middleware\FormTokenCheck;
 use think\Request;
-use think\Response;
 use think\Route;
 use think\route\dispatch\Callback as CallbackDispatch;
 use think\route\dispatch\Controller as ControllerDispatch;
-use think\route\dispatch\Redirect as RedirectDispatch;
-use think\route\dispatch\Response as ResponseDispatch;
-use think\route\dispatch\View as ViewDispatch;
 
 /**
  * 路由规则基础类
@@ -33,6 +32,12 @@ abstract class Rule
      * @var string
      */
     protected $name;
+
+    /**
+     * 所在域名
+     * @var string
+     */
+    protected $domain;
 
     /**
      * 路由对象
@@ -86,7 +91,7 @@ abstract class Rule
      * 需要和分组合并的路由参数
      * @var array
      */
-    protected $mergeOptions = ['after', 'model', 'append', 'middleware'];
+    protected $mergeOptions = ['model', 'append', 'middleware'];
 
     abstract public function check(Request $request, string $url, bool $completeMatch = false);
 
@@ -210,7 +215,7 @@ abstract class Rule
      */
     public function getDomain(): string
     {
-        return $this->parent->getDomain();
+        return $this->domain ?: $this->parent->getDomain();
     }
 
     /**
@@ -232,11 +237,17 @@ abstract class Rule
      */
     public function getPattern(string $name = '')
     {
-        if ('' === $name) {
-            return $this->pattern;
+        $pattern = $this->pattern;
+
+        if ($this->parent) {
+            $pattern = array_merge($this->parent->getPattern(), $pattern);
         }
 
-        return $this->pattern[$name] ?? null;
+        if ('' === $name) {
+            return $pattern;
+        }
+
+        return $pattern[$name] ?? null;
     }
 
     /**
@@ -248,11 +259,26 @@ abstract class Rule
      */
     public function getOption(string $name = '', $default = null)
     {
-        if ('' === $name) {
-            return $this->option;
+        $option = $this->option;
+
+        if ($this->parent) {
+            $parentOption = $this->parent->getOption();
+
+            // 合并分组参数
+            foreach ($this->mergeOptions as $item) {
+                if (isset($parentOption[$item]) && isset($option[$item])) {
+                    $option[$item] = array_merge($parentOption[$item], $option[$item]);
+                }
+            }
+
+            $option = array_merge($parentOption, $option);
         }
 
-        return $this->option[$name] ?? $default;
+        if ('' === $name) {
+            return $option;
+        }
+
+        return $option[$name] ?? $default;
     }
 
     /**
@@ -306,6 +332,7 @@ abstract class Rule
      */
     public function domain(string $domain)
     {
+        $this->domain = $domain;
         return $this->setOption('domain', $domain);
     }
 
@@ -377,17 +404,17 @@ abstract class Rule
     /**
      * 指定路由中间件
      * @access public
-     * @param  string|array|Closure $middleware 中间件
-     * @param  mixed                $param 参数
+     * @param string|array|Closure $middleware 中间件
+     * @param mixed $params 参数
      * @return $this
      */
-    public function middleware($middleware, $param = null)
+    public function middleware($middleware, ...$params)
     {
-        if (is_null($param) && is_array($middleware)) {
+        if (empty($params) && is_array($middleware)) {
             $this->option['middleware'] = $middleware;
         } else {
             foreach ((array) $middleware as $item) {
-                $this->option['middleware'][] = [$item, $param];
+                $this->option['middleware'][] = [$item, $params];
             }
         }
 
@@ -402,7 +429,7 @@ abstract class Rule
      */
     public function allowCrossDomain(array $header = [])
     {
-        return $this->middleware('\think\middleware\AllowCrossDomain', $header);
+        return $this->middleware(AllowCrossDomain::class, $header);
     }
 
     /**
@@ -413,7 +440,7 @@ abstract class Rule
      */
     public function token(string $token = '__token__')
     {
-        return $this->middleware('\think\middleware\FormTokenCheck', $token);
+        return $this->middleware(FormTokenCheck::class, $token);
     }
 
     /**
@@ -424,7 +451,7 @@ abstract class Rule
      */
     public function cache($cache)
     {
-        return $this->middleware('\think\middleware\CheckRequestCache', $cache);
+        return $this->middleware(CheckRequestCache::class, $cache);
     }
 
     /**
@@ -495,36 +522,14 @@ abstract class Rule
     }
 
     /**
-     * 当前路由到一个模板地址 当使用数组的时候可以传入模板变量
+     * 路由到一个模板地址 需要额外传入的模板变量
      * @access public
-     * @param  bool|array $view 视图
+     * @param  array $view 视图
      * @return $this
      */
-    public function view($view = true)
+    public function view(array $view = [])
     {
         return $this->setOption('view', $view);
-    }
-
-    /**
-     * 当前路由为重定向
-     * @access public
-     * @param  bool $redirect 是否为重定向
-     * @return $this
-     */
-    public function redirect(bool $redirect = true)
-    {
-        return $this->setOption('redirect', $redirect);
-    }
-
-    /**
-     * 设置status
-     * @access public
-     * @param  int $status 状态码
-     * @return $this
-     */
-    public function status(int $status)
-    {
-        return $this->setOption('status', $status);
     }
 
     /**
@@ -568,26 +573,6 @@ abstract class Rule
     }
 
     /**
-     * 合并分组参数
-     * @access public
-     * @return array
-     */
-    public function mergeGroupOptions(): array
-    {
-        $parentOption = $this->parent->getOption();
-        // 合并分组参数
-        foreach ($this->mergeOptions as $item) {
-            if (isset($parentOption[$item]) && isset($this->option[$item])) {
-                $this->option[$item] = array_merge($parentOption[$item], $this->option[$item]);
-            }
-        }
-
-        $this->option = array_merge($parentOption, $this->option);
-
-        return $this->option;
-    }
-
-    /**
      * 解析匹配到的规则路由
      * @access public
      * @param  Request $request 请求对象
@@ -606,24 +591,31 @@ abstract class Rule
         }
 
         // 替换路由地址中的变量
-        if (is_string($route) && !empty($matches)) {
-            $search = $replace = [];
+        $extraParams = true;
+        $search      = $replace      = [];
+        $depr        = $this->router->config('pathinfo_depr');
+        foreach ($matches as $key => $value) {
+            $search[]  = '<' . $key . '>';
+            $replace[] = $value;
 
-            foreach ($matches as $key => $value) {
-                $search[]  = '<' . $key . '>';
-                $replace[] = $value;
+            $search[]  = ':' . $key;
+            $replace[] = $value;
 
-                $search[]  = ':' . $key;
-                $replace[] = $value;
+            if (strpos($value, $depr)) {
+                $extraParams = false;
             }
+        }
 
+        if (is_string($route)) {
             $route = str_replace($search, $replace, $route);
         }
 
         // 解析额外参数
-        $count = substr_count($rule, '/');
-        $url   = array_slice(explode('|', $url), $count + 1);
-        $this->parseUrlParams(implode('|', $url), $matches);
+        if ($extraParams) {
+            $count = substr_count($rule, '/');
+            $url   = array_slice(explode('|', $url), $count + 1);
+            $this->parseUrlParams(implode('|', $url), $matches);
+        }
 
         $this->vars = $matches;
 
@@ -641,20 +633,14 @@ abstract class Rule
      */
     protected function dispatch(Request $request, $route, array $option): Dispatch
     {
-        if ($route instanceof Dispatch) {
-            $result = $route;
+        if (is_subclass_of($route, Dispatch::class)) {
+            $result = new $route($request, $this, $route, $this->vars);
         } elseif ($route instanceof Closure) {
             // 执行闭包
             $result = new CallbackDispatch($request, $this, $route, $this->vars);
-        } elseif ($route instanceof Response) {
-            $result = new ResponseDispatch($request, $this, $route);
-        } elseif (isset($option['view']) && false !== $option['view']) {
-            $result = new ViewDispatch($request, $this, $route, is_array($option['view']) ? $option['view'] : $this->vars);
-        } elseif (!empty($option['redirect']) || 0 === strpos($route, '/') || strpos($route, '://')) {
-            // 路由到重定向地址
-            $result = new RedirectDispatch($request, $this, $route, $this->vars, $option['status'] ?? 301);
-        } elseif (false !== strpos($route, '\\')) {
+        } elseif (false !== strpos($route, '@') || false !== strpos($route, '::') || false !== strpos($route, '\\')) {
             // 路由到类的方法
+            $route  = str_replace('::', '@', $route);
             $result = $this->dispatchMethod($request, $route);
         } else {
             // 路由到控制器/操作
@@ -820,7 +806,8 @@ abstract class Rule
         }
 
         $regex = str_replace(array_unique($match), array_unique($replace), $rule);
-        $regex = str_replace([')?/', ')/', ')?-', ')-', '\\\\/'], [')\/', ')\/', ')\-', ')\-', '\/'], $regex);
+        $regex = str_replace('/', '\/', $regex);
+        $regex = str_replace([')?\/', ')?-', ')-', '\\\\/'], [')\/', ')\-', ')\-', '\/'], $regex);
 
         if (isset($hasSlash)) {
             $regex .= '\/';

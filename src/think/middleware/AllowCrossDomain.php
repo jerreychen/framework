@@ -26,8 +26,9 @@ class AllowCrossDomain
 
     protected $header = [
         'Access-Control-Allow-Credentials' => 'true',
-        'Access-Control-Allow-Methods'     => 'GET, POST, PATCH, PUT, DELETE',
-        'Access-Control-Allow-Headers'     => 'Authorization, Content-Type, If-Match, If-Modified-Since, If-None-Match, If-Unmodified-Since, X-Requested-With',
+        'Access-Control-Max-Age'           => 1800,
+        'Access-Control-Allow-Methods'     => 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers'     => 'Authorization, Content-Type, If-Match, If-Modified-Since, If-None-Match, If-Unmodified-Since, X-CSRF-TOKEN, X-Requested-With',
     ];
 
     public function __construct(Config $config)
@@ -55,10 +56,6 @@ class AllowCrossDomain
             } else {
                 $header['Access-Control-Allow-Origin'] = '*';
             }
-        }
-
-        if ($request->method(true) == 'OPTIONS') {
-            return Response::create()->code(204)->header($header);
         }
 
         return $next($request)->header($header);

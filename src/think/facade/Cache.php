@@ -8,29 +8,31 @@
 // +----------------------------------------------------------------------
 // | Author: liu21st <liu21st@gmail.com>
 // +----------------------------------------------------------------------
+declare (strict_types = 1);
 
 namespace think\facade;
 
 use think\Facade;
+use think\cache\Driver;
+use think\cache\TagSet;
 
 /**
  * @see \think\Cache
+ * @package think\facade
  * @mixin \think\Cache
- * @method \think\cache\Driver connect(array $options = [], mixed $name = false) static 连接缓存
- * @method \think\cache\Driver init(array $options = [], bool $force = false) static 初始化缓存
- * @method \think\cache\Driver store(string $name = '', bool $force = false) static 切换缓存类型
- * @method bool has(string $name) static 判断缓存是否存在
- * @method mixed get(string $name, mixed $default = false) static 读取缓存
- * @method mixed pull(string $name) static 读取缓存并删除
- * @method mixed set(string $name, mixed $value, int $expire = null) static 设置缓存
- * @method mixed remember(string $name, mixed $value, int $expire = null) static 如果不存在则写入缓存
- * @method mixed inc(string $name, int $step = 1) static 自增缓存（针对数值缓存）
- * @method mixed dec(string $name, int $step = 1) static 自减缓存（针对数值缓存）
- * @method bool delete(string $name) static 删除缓存
- * @method bool clear() static 清除缓存
- * @method \think\cache\TagSet tag(mixed $name) static 缓存标签
- * @method array getTagItems(string $name) static 获取标签下的缓存标识
- * @method object handler() static 返回句柄对象，可执行其它高级方法
+ * @method static string|null getDefaultDriver() 默认驱动
+ * @method static mixed getConfig(null|string $name = null, mixed $default = null) 获取缓存配置
+ * @method static array getStoreConfig(string $store, string $name = null, null $default = null) 获取驱动配置
+ * @method static Driver store(string $name = null) 连接或者切换缓存
+ * @method static bool clear() 清空缓冲池
+ * @method static mixed get(string $key, mixed $default = null) 读取缓存
+ * @method static bool set(string $key, mixed $value, int|\DateTime $ttl = null) 写入缓存
+ * @method static bool delete(string $key) 删除缓存
+ * @method static iterable getMultiple(iterable $keys, mixed $default = null) 读取缓存
+ * @method static bool setMultiple(iterable $values, null|int|\DateInterval $ttl = null) 写入缓存
+ * @method static bool deleteMultiple(iterable $keys) 删除缓存
+ * @method static bool has(string $key) 判断缓存是否存在
+ * @method static TagSet tag(string|array $name) 缓存标签
  */
 class Cache extends Facade
 {

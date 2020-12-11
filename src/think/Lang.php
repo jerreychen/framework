@@ -14,6 +14,7 @@ namespace think;
 
 /**
  * 多语言管理类
+ * @package think
  */
 class Lang
 {
@@ -32,6 +33,8 @@ class Lang
         'extend_list'     => [],
         // 多语言cookie变量
         'cookie_var'      => 'think_lang',
+        // 多语言header变量
+        'header_var'      => 'think-lang',
         // 多语言自动侦测变量名
         'detect_var'      => 'lang',
         // Accept-Language转义为对应语言包名称
@@ -55,31 +58,25 @@ class Lang
     private $range = 'zh-cn';
 
     /**
-     * Request对象
-     * @var Request
-     */
-    protected $request;
-
-    /**
      * 构造方法
      * @access public
+     * @param array $config
      */
-    public function __construct(Request $request, array $config = [])
+    public function __construct(array $config = [])
     {
-        $this->request = $request;
-        $this->config  = array_merge($this->config, array_change_key_case($config));
-        $this->range   = $this->config['default_lang'];
+        $this->config = array_merge($this->config, array_change_key_case($config));
+        $this->range  = $this->config['default_lang'];
     }
 
-    public static function __make(Request $request, Config $config)
+    public static function __make(Config $config)
     {
-        return new static($request, $config->get('lang'));
+        return new static($config->get('lang'));
     }
 
     /**
      * 设置当前语言
      * @access public
-     * @param  string $name 语言
+     * @param string $lang 语言
      * @return void
      */
     public function setLangSet(string $lang): void
@@ -110,8 +107,8 @@ class Lang
     /**
      * 加载语言定义(不区分大小写)
      * @access public
-     * @param  string|array $file   语言文件
-     * @param  string       $range  语言作用域
+     * @param string|array $file  语言文件
+     * @param string       $range 语言作用域
      * @return array
      */
     public function load($file, $range = ''): array
@@ -123,9 +120,9 @@ class Lang
 
         $lang = [];
 
-        foreach ((array) $file as $_file) {
-            if (is_file($_file)) {
-                $result = $this->parse($_file);
+        foreach ((array) $file as $name) {
+            if (is_file($name)) {
+                $result = $this->parse($name);
                 $lang   = array_change_key_case($result) + $lang;
             }
         }
@@ -140,7 +137,7 @@ class Lang
     /**
      * 解析语言文件
      * @access protected
-     * @param  string $file 语言文件名
+     * @param string $file 语言文件名
      * @return array
      */
     protected function parse(string $file): array
@@ -157,6 +154,18 @@ class Lang
                     $result = yaml_parse_file($file);
                 }
                 break;
+            case 'json':
+                $data = file_get_contents($file);
+
+                if($data !== false) {
+                    $data = json_decode($data, true);
+
+                    if(json_last_error() === JSON_ERROR_NONE) {
+                        $result = $data;
+                    }
+                }
+
+                break;
         }
 
         return isset($result) && is_array($result) ? $result : [];
@@ -165,8 +174,8 @@ class Lang
     /**
      * 判断是否存在语言定义(不区分大小写)
      * @access public
-     * @param  string|null $name 语言变量
-     * @param  string      $range 语言作用域
+     * @param string|null $name  语言变量
+     * @param string      $range 语言作用域
      * @return bool
      */
     public function has(string $name, string $range = ''): bool
@@ -174,7 +183,7 @@ class Lang
         $range = $range ?: $this->range;
 
         if ($this->config['allow_group'] && strpos($name, '.')) {
-            list($name1, $name2) = explode('.', $name, 2);
+            [$name1, $name2] = explode('.', $name, 2);
             return isset($this->lang[$range][strtolower($name1)][$name2]);
         }
 
@@ -184,9 +193,9 @@ class Lang
     /**
      * 获取语言定义(不区分大小写)
      * @access public
-     * @param  string|null $name 语言变量
-     * @param  array       $vars 变量替换
-     * @param  string      $range 语言作用域
+     * @param string|null $name  语言变量
+     * @param array       $vars  变量替换
+     * @param string      $range 语言作用域
      * @return mixed
      */
     public function get(string $name = null, array $vars = [], string $range = '')
@@ -199,7 +208,7 @@ class Lang
         }
 
         if ($this->config['allow_group'] && strpos($name, '.')) {
-            list($name1, $name2) = explode('.', $name, 2);
+            [$name1, $name2] = explode('.', $name, 2);
 
             $value = $this->lang[$range][strtolower($name1)][$name2] ?? $name;
         } else {
@@ -233,26 +242,31 @@ class Lang
     /**
      * 自动侦测设置获取语言选择
      * @access public
+     * @param Request $request
      * @return string
      */
-    public function detect(): string
+    public function detect(Request $request): string
     {
         // 自动侦测设置获取语言选择
         $langSet = '';
 
-        if ($this->request->get($this->config['detect_var'])) {
+        if ($request->get($this->config['detect_var'])) {
             // url中设置了语言变量
-            $langSet = strtolower($this->request->get($this->config['detect_var']));
-        } elseif ($this->request->cookie($this->config['cookie_var'])) {
+            $langSet = strtolower($request->get($this->config['detect_var']));
+        } elseif ($request->header($this->config['header_var'])) {
+            // Header中设置了语言变量
+            $langSet = strtolower($request->header($this->config['header_var']));
+        } elseif ($request->cookie($this->config['cookie_var'])) {
             // Cookie中设置了语言变量
-            $langSet = strtolower($this->request->cookie($this->config['cookie_var']));
-        } elseif ($this->request->server('HTTP_ACCEPT_LANGUAGE')) {
+            $langSet = strtolower($request->cookie($this->config['cookie_var']));
+        } elseif ($request->server('HTTP_ACCEPT_LANGUAGE')) {
             // 自动侦测浏览器语言
-            preg_match('/^([a-z\d\-]+)/i', $this->request->server('HTTP_ACCEPT_LANGUAGE'), $matches);
-            $langSet = strtolower($matches[1]);
-
-            if (isset($this->config['accept_language'][$langSet])) {
-                $langSet = $this->config['accept_language'][$langSet];
+            $match = preg_match('/^([a-z\d\-]+)/i', $request->server('HTTP_ACCEPT_LANGUAGE'), $matches);
+            if ($match) {
+                $langSet = strtolower($matches[1]);
+                if (isset($this->config['accept_language'][$langSet])) {
+                    $langSet = $this->config['accept_language'][$langSet];
+                }
             }
         }
 
@@ -267,7 +281,7 @@ class Lang
     /**
      * 保存当前语言到Cookie
      * @access public
-     * @param  Cookie $cookie Cookie对象
+     * @param Cookie $cookie Cookie对象
      * @return void
      */
     public function saveToCookie(Cookie $cookie)

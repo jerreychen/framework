@@ -12,190 +12,76 @@ declare (strict_types = 1);
 
 namespace think;
 
-use InvalidArgumentException;
-use think\db\Connection;
-use think\db\Query;
-use think\db\Raw;
-
 /**
- * Class Db
+ * 数据库管理类
  * @package think
- * @mixin Query
+ * @property Config $config
  */
-class Db
+class Db extends DbManager
 {
-    /**
-     * 数据库连接实例
-     * @var array
-     */
-    protected $instance = [];
-
-    /**
-     * 当前连接实例
-     * @var Connection
-     */
-    protected $connection;
-
-    /**
-     * Event对象
-     * @var Event
-     */
-    protected $event;
-
-    /**
-     * 数据库配置
-     * @var array
-     */
-    protected $config = [];
-
-    /**
-     * SQL监听
-     * @var array
-     */
-    protected $listen = [];
-
-    /**
-     * 查询次数
-     * @var int
-     */
-    protected $queryTimes = 0;
-
-    /**
-     * 架构函数
-     * @param array $config 连接配置
-     * @access public
-     */
-    public function __construct(array $config = [])
-    {
-        $this->config = $config;
-
-    }
-
     /**
      * @param Event  $event
      * @param Config $config
+     * @param Log    $log
+     * @param Cache  $cache
      * @return Db
      * @codeCoverageIgnore
      */
-    public static function __make(Event $event, Config $config)
+    public static function __make(Event $event, Config $config, Log $log, Cache $cache)
     {
-        $db = new static($config->get('database'));
-
+        $db = new static();
+        $db->setConfig($config);
         $db->setEvent($event);
+        $db->setLog($log);
+
+        $store = $db->getConfig('cache_store');
+        $db->setCache($cache->store($store));
+        $db->triggerSql();
 
         return $db;
     }
 
     /**
-     * 连接/切换数据库连接
-     * @access public
-     * @param string|null $name  连接标识
-     * @param bool        $force 强制重新连接
-     * @return $this
-     */
-    public function connect(string $name = null, bool $force = false)
-    {
-        if (empty($name)) {
-            $name = $this->config['default'] ?? 'mysql';
-        }
-
-        if (!isset($this->config['connections'][$name])) {
-            throw new InvalidArgumentException('Undefined db config:' . $name);
-        }
-
-        $config = $this->config['connections'][$name];
-
-        if ($force || !isset($this->instance[$name])) {
-            if (empty($config['type'])) {
-                throw new InvalidArgumentException('Undefined db type');
-            }
-
-            $this->instance[$name] = App::factory($config['type'], '\\think\\db\\connector\\', $config);
-        }
-
-        $this->connection = $this->instance[$name];
-        return $this;
-    }
-
-    /**
-     * 使用表达式设置数据
-     * @access public
-     * @param string $value 表达式
-     * @return Raw
-     */
-    public function raw(string $value): Raw
-    {
-        return new Raw($value);
-    }
-
-    /**
-     * 更新查询次数
+     * 注入模型对象
      * @access public
      * @return void
      */
-    public function updateQueryTimes(): void
+    protected function modelMaker()
     {
-        $this->queryTimes++;
     }
 
     /**
-     * 重置查询次数
+     * 设置配置对象
      * @access public
+     * @param Config $config 配置对象
      * @return void
      */
-    public function clearQueryTimes(): void
+    public function setConfig($config): void
     {
-        $this->queryTimes = 0;
+        $this->config = $config;
     }
 
     /**
-     * 获得查询次数
+     * 获取配置参数
      * @access public
-     * @return integer
+     * @param string $name    配置参数
+     * @param mixed  $default 默认值
+     * @return mixed
      */
-    public function getQueryTimes(): int
+    public function getConfig(string $name = '', $default = null)
     {
-        return $this->queryTimes;
-    }
+        if ('' !== $name) {
+            return $this->config->get('database.' . $name, $default);
+        }
 
-    /**
-     * 创建一个新的查询对象
-     * @access public
-     * @param string|null $connection 连接配置标识
-     * @return Query
-     */
-    public function buildQuery(string $connection = null): Query
-    {
-        $this->connect($connection);
-        return $this->newQuery($this->connection);
-    }
-
-    /**
-     * 监听SQL执行
-     * @access public
-     * @param callable $callback 回调方法
-     * @return void
-     */
-    public function listen(callable $callback): void
-    {
-        $this->listen[] = $callback;
-    }
-
-    /**
-     * 获取监听SQL执行
-     * @access public
-     * @return array
-     */
-    public function getListen(): array
-    {
-        return $this->listen;
+        return $this->config->get('database', []);
     }
 
     /**
      * 设置Event对象
      * @param Event $event
      */
-    public function setEvent(Event $event)
+    public function setEvent(Event $event): void
     {
         $this->event = $event;
     }
@@ -227,32 +113,5 @@ class Db
         if ($this->event) {
             return $this->event->trigger('db.' . $event, $params, $once);
         }
-    }
-
-    /**
-     * 创建一个新的查询对象
-     * @access protected
-     * @param Connection $connection 连接对象
-     * @return Query
-     */
-    protected function newQuery(Connection $connection = null): Query
-    {
-        /** @var Query $query */
-        if (is_null($connection) && !$this->connection) {
-            $this->connect();
-        }
-
-        $connection = $connection ?: $this->connection;
-        $connection->setDb($this);
-
-        $class = $connection->getQueryClass();
-        return new $class($connection);
-    }
-
-    public function __call($method, $args)
-    {
-        $query = $this->newQuery($this->connection);
-
-        return call_user_func_array([$query, $method], $args);
     }
 }

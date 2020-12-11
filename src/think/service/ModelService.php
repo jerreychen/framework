@@ -22,24 +22,24 @@ class ModelService extends Service
 {
     public function boot()
     {
+        Model::setDb($this->app->db);
+        Model::setEvent($this->app->event);
+        Model::setInvoker([$this->app, 'invoke']);
         Model::maker(function (Model $model) {
-            $db     = $this->app->db;
             $config = $this->app->config;
-            $model->setDb($db);
-            $model->setEvent($this->app->event);
 
             $isAutoWriteTimestamp = $model->getAutoWriteTimestamp();
 
             if (is_null($isAutoWriteTimestamp)) {
                 // 自动写入时间戳
-                $model->isAutoWriteTimestamp($config->get('database.auto_timestamp'));
+                $model->isAutoWriteTimestamp($config->get('database.auto_timestamp', 'timestamp'));
             }
 
             $dateFormat = $model->getDateFormat();
 
             if (is_null($dateFormat)) {
                 // 设置时间戳格式
-                $model->setDateFormat($config->get('database.datetime_format'));
+                $model->setDateFormat($config->get('database.datetime_format', 'Y-m-d H:i:s'));
             }
 
         });

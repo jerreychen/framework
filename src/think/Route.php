@@ -13,10 +13,9 @@ declare (strict_types = 1);
 namespace think;
 
 use Closure;
-use think\cache\Driver;
-use think\exception\HttpResponseException;
 use think\exception\RouteNotFoundException;
 use think\route\Dispatch;
+use think\route\dispatch\Callback;
 use think\route\dispatch\Url as UrlDispatch;
 use think\route\Domain;
 use think\route\Resource;
@@ -28,6 +27,7 @@ use think\route\Url as UrlBuild;
 
 /**
  * 路由管理类
+ * @package think
  */
 class Route
 {
@@ -60,13 +60,10 @@ class Route
         'route_rule_merge'      => false,
         // 路由是否完全匹配
         'route_complete_match'  => false,
+        // 去除斜杠
+        'remove_slash'          => false,
         // 使用注解路由
         'route_annotation'      => false,
-        // 路由缓存设置
-        'route_check_cache'     => false,
-        'route_check_cache_key' => '',
-        // 是否自动转换URL中的控制器和操作名
-        'url_convert'           => true,
         // 默认的路由变量规则
         'default_route_pattern' => '[\w\.]+',
         // URL伪静态后缀
@@ -100,12 +97,6 @@ class Route
     protected $request;
 
     /**
-     * 缓存
-     * @var Driver
-     */
-    protected $cache;
-
-    /**
      * @var RuleName
      */
     protected $ruleName;
@@ -130,7 +121,7 @@ class Route
 
     /**
      * 域名对象
-     * @var array
+     * @var Domain[]
      */
     protected $domains = [];
 
@@ -144,7 +135,7 @@ class Route
      * 路由是否延迟解析
      * @var bool
      */
-    protected $lazy = true;
+    protected $lazy = false;
 
     /**
      * 路由是否测试模式
@@ -158,27 +149,37 @@ class Route
      */
     protected $mergeRuleRegex = false;
 
+    /**
+     * 是否去除URL最后的斜线
+     * @var bool
+     */
+    protected $removeSlash = false;
+
     public function __construct(App $app)
     {
         $this->app      = $app;
         $this->ruleName = new RuleName();
         $this->setDefaultDomain();
-    }
-
-    protected function init()
-    {
-        $this->config = array_merge($this->config, $this->app->config->get('route'));
-
-        $this->lazy($this->config['url_lazy_route']);
-
-        if ($this->config['route_check_cache']) {
-            $this->cache = $this->app->cache->store(true === $this->config['route_check_cache'] ? '' : $this->config['route_check_cache']);
-        }
 
         if (is_file($this->app->getRuntimePath() . 'route.php')) {
             // 读取路由映射文件
             $this->import(include $this->app->getRuntimePath() . 'route.php');
         }
+
+        $this->config = array_merge($this->config, $this->app->config->get('route'));
+    }
+
+    protected function init()
+    {
+        if (!empty($this->config['middleware'])) {
+            $this->app->middleware->import($this->config['middleware'], 'route');
+        }
+
+        $this->lazy($this->config['url_lazy_route']);
+        $this->mergeRuleRegex = $this->config['route_rule_merge'];
+        $this->removeSlash    = $this->config['remove_slash'];
+
+        $this->group->removeSlash($this->removeSlash);
     }
 
     public function config(string $name = null)
@@ -267,6 +268,7 @@ class Route
     /**
      * 获取指定标识的路由分组 不指定则获取当前分组
      * @access public
+     * @param string $name 分组标识
      * @return RuleGroup
      */
     public function getGroup(string $name = null)
@@ -315,6 +317,7 @@ class Route
         if (!isset($this->domains[$domainName])) {
             $domain = (new Domain($this, $domainName, $rule))
                 ->lazy($this->lazy)
+                ->removeSlash($this->removeSlash)
                 ->mergeRuleRegex($this->mergeRuleRegex);
 
             $this->domains[$domainName] = $domain;
@@ -389,14 +392,16 @@ class Route
     {
         if (is_null($domain)) {
             $domain = $this->host;
-        } elseif (false === strpos($domain, '.')) {
+        } elseif (false === strpos($domain, '.') && $this->request) {
             $domain .= '.' . $this->request->rootDomain();
         }
 
-        $subDomain = $this->request->subDomain();
+        if ($this->request) {
+            $subDomain = $this->request->subDomain();
 
-        if (strpos($subDomain, '.')) {
-            $name = '*' . strstr($subDomain, '.');
+            if (strpos($subDomain, '.')) {
+                $name = '*' . strstr($subDomain, '.');
+            }
         }
 
         if (isset($this->bind[$domain])) {
@@ -418,7 +423,7 @@ class Route
      * @param string $name   路由标识
      * @param string $domain 域名
      * @param string $method 请求类型
-     * @return RuleItem[]
+     * @return array
      */
     public function getName(string $name = null, string $domain = null, string $method = '*'): array
     {
@@ -429,7 +434,7 @@ class Route
      * 批量导入路由标识
      * @access public
      * @param array $name 路由标识
-     * @return $this
+     * @return void
      */
     public function import(array $name): void
     {
@@ -506,6 +511,12 @@ class Route
      */
     public function rule(string $rule, $route = null, string $method = '*'): RuleItem
     {
+        if ($route instanceof Response) {
+            // 兼容之前的路由到响应对象，感觉不需要，使用场景很少，闭包就能实现
+            $route = function () use ($route) {
+                return $route;
+            };
+        }
         return $this->group->addRule($rule, $route, $method);
     }
 
@@ -536,13 +547,14 @@ class Route
      */
     public function group($name, $route = null): RuleGroup
     {
-        if ($name instanceof \Closure) {
+        if ($name instanceof Closure) {
             $route = $name;
             $name  = '';
         }
 
         return (new RuleGroup($this, $this->group, $name, $route))
             ->lazy($this->lazy)
+            ->removeSlash($this->removeSlash)
             ->mergeRuleRegex($this->mergeRuleRegex);
     }
 
@@ -646,27 +658,43 @@ class Route
     /**
      * 注册视图路由
      * @access public
-     * @param string|array $rule     路由规则
-     * @param string       $template 路由模板地址
-     * @param array        $vars     模板变量
+     * @param string $rule     路由规则
+     * @param string $template 路由模板地址
+     * @param array  $vars     模板变量
      * @return RuleItem
      */
     public function view(string $rule, string $template = '', array $vars = []): RuleItem
     {
-        return $this->rule($rule, $template, 'GET')->view($vars);
+        return $this->rule($rule, function () use ($vars, $template) {
+            return Response::create($template, 'view')->assign($vars);
+        }, 'GET');
     }
 
     /**
      * 注册重定向路由
      * @access public
-     * @param string|array $rule   路由规则
-     * @param string       $route  路由地址
-     * @param int          $status 状态码
+     * @param string $rule   路由规则
+     * @param string $route  路由地址
+     * @param int    $status 状态码
      * @return RuleItem
      */
     public function redirect(string $rule, string $route = '', int $status = 301): RuleItem
     {
-        return $this->rule($rule, $route, '*')->redirect()->status($status);
+        return $this->rule($rule, function (Request $request) use ($status, $route) {
+            $search  = $replace  = [];
+            $matches = $request->rule()->getVars();
+
+            foreach ($matches as $key => $value) {
+                $search[]  = '<' . $key . '>';
+                $replace[] = $value;
+
+                $search[]  = ':' . $key;
+                $replace[] = $value;
+            }
+
+            $route = str_replace($search, $replace, $route);
+            return Response::create($route, 'redirect')->code($status);
+        }, '*');
     }
 
     /**
@@ -717,72 +745,41 @@ class Route
     /**
      * 路由调度
      * @param Request $request
-     * @param Closure $withRoute
+     * @param Closure|bool $withRoute
      * @return Response
      */
-    public function dispatch(Request $request, $withRoute = null)
+    public function dispatch(Request $request, $withRoute = true)
     {
         $this->request = $request;
         $this->host    = $this->request->host(true);
         $this->init();
 
         if ($withRoute) {
-            $checkCallback = function () use ($request, $withRoute) {
-                //加载路由
+            //加载路由
+            if ($withRoute instanceof Closure) {
                 $withRoute();
-                return $this->check();
-            };
-
-            if ($this->config['route_check_cache']) {
-                $dispatch = $this->cache
-                    ->tag('route_cache')
-                    ->remember($this->getRouteCacheKey($request), $checkCallback);
-            } else {
-                $dispatch = $checkCallback();
             }
+            $dispatch = $this->check();
         } else {
             $dispatch = $this->url($this->path());
         }
 
         $dispatch->init($this->app);
 
-        $this->app->middleware->add(function () use ($dispatch) {
-            try {
-                $response = $dispatch->run();
-            } catch (HttpResponseException $exception) {
-                $response = $exception->getResponse();
-            }
-            return $response;
-        });
-
-        return $this->app->middleware->dispatch($request);
-    }
-
-    /**
-     * 获取路由缓存Key
-     * @access protected
-     * @param Request $request
-     * @return string
-     */
-    protected function getRouteCacheKey(Request $request): string
-    {
-        if (!empty($this->config['route_check_cache_key'])) {
-            $closure  = $this->config['route_check_cache_key'];
-            $routeKey = $closure($request);
-        } else {
-            $routeKey = md5($request->baseUrl(true) . ':' . $request->method());
-        }
-
-        return $routeKey;
+        return $this->app->middleware->pipeline('route')
+            ->send($request)
+            ->then(function () use ($dispatch) {
+                return $dispatch->run();
+            });
     }
 
     /**
      * 检测URL路由
      * @access public
-     * @return Dispatch
+     * @return Dispatch|false
      * @throws RouteNotFoundException
      */
-    public function check(): Dispatch
+    public function check()
     {
         // 自动检测域名路由
         $url = str_replace($this->config['pathinfo_depr'], '|', $this->path());
@@ -835,8 +832,15 @@ class Route
      * @param string $url URL地址
      * @return Dispatch
      */
-    public function url(string $url): UrlDispatch
+    public function url(string $url): Dispatch
     {
+        if ($this->request->method() == 'OPTIONS') {
+            // 自动响应options请求
+            return new Callback($this->request, $this->group, function () {
+                return Response::create('', 'html', 204)->header(['Allow' => 'GET, POST, PUT, DELETE']);
+            });
+        }
+
         return new UrlDispatch($this->request, $this->group, $url);
     }
 
@@ -905,7 +909,7 @@ class Route
      */
     public function buildUrl(string $url = '', array $vars = []): UrlBuild
     {
-        return new UrlBuild($this, $this->app, $url, $vars);
+        return $this->app->make(UrlBuild::class, [$this, $this->app, $url, $vars], true);
     }
 
     /**

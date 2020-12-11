@@ -12,8 +12,6 @@ declare (strict_types = 1);
 
 namespace think\route;
 
-use Closure;
-
 /**
  * 路由标识管理类
  */
@@ -48,10 +46,11 @@ class RuleName
     public function setName(string $name, RuleItem $ruleItem, bool $first = false): void
     {
         $name = strtolower($name);
+        $item = $this->getRuleItemInfo($ruleItem);
         if ($first && isset($this->item[$name])) {
-            array_unshift($this->item[$name], $ruleItem);
+            array_unshift($this->item[$name], $item);
         } else {
-            $this->item[$name][] = $ruleItem;
+            $this->item[$name][] = $item;
         }
     }
 
@@ -78,10 +77,10 @@ class RuleName
     {
         $route = $ruleItem->getRoute();
 
-        if ($route instanceof Closure) {
-            $this->rule[$rule][] = $ruleItem;
+        if (is_string($route)) {
+            $this->rule[$rule][$route] = $ruleItem;
         } else {
-            $this->rule[$rule][$ruleItem->getRoute()] = $ruleItem;
+            $this->rule[$rule][] = $ruleItem;
         }
     }
 
@@ -181,8 +180,8 @@ class RuleName
                 $result = $this->item[$name];
             } else {
                 foreach ($this->item[$name] as $item) {
-                    $itemDomain = $item->getDomain();
-                    $itemMethod = $item->getMethod();
+                    $itemDomain = $item['domain'];
+                    $itemMethod = $item['method'];
 
                     if (($itemDomain == $domain || '-' == $itemDomain) && ('*' == $itemMethod || '*' == $method || $method == $itemMethod)) {
                         $result[] = $item;
@@ -194,4 +193,19 @@ class RuleName
         return $result;
     }
 
+    /**
+     * 获取路由信息
+     * @access protected
+     * @param  RuleItem $item 路由规则
+     * @return array
+     */
+    protected function getRuleItemInfo(RuleItem $item): array
+    {
+        return [
+            'rule'   => $item->getRule(),
+            'domain' => $item->getDomain(),
+            'method' => $item->getMethod(),
+            'suffix' => $item->getSuffix(),
+        ];
+    }
 }

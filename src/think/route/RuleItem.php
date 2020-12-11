@@ -25,7 +25,13 @@ class RuleItem extends Rule
      * 是否为MISS规则
      * @var bool
      */
-    protected $miss;
+    protected $miss = false;
+
+    /**
+     * 是否为额外自动注册的OPTIONS规则
+     * @var bool
+     */
+    protected $autoOption = false;
 
     /**
      * 架构函数
@@ -53,11 +59,12 @@ class RuleItem extends Rule
     /**
      * 设置当前路由规则为MISS路由
      * @access public
-     * @return void
+     * @return $this
      */
-    public function setMiss(): void
+    public function setMiss()
     {
         $this->miss = true;
+        return $this;
     }
 
     /**
@@ -67,7 +74,28 @@ class RuleItem extends Rule
      */
     public function isMiss(): bool
     {
-        return $this->miss ? true : false;
+        return $this->miss;
+    }
+
+    /**
+     * 设置当前路由为自动注册OPTIONS
+     * @access public
+     * @return $this
+     */
+    public function setAutoOptions()
+    {
+        $this->autoOption = true;
+        return $this;
+    }
+
+    /**
+     * 判断当前路由规则是否为自动注册的OPTIONS路由
+     * @access public
+     * @return bool
+     */
+    public function isAutoOptions(): bool
+    {
+        return $this->autoOption;
     }
 
     /**
@@ -163,12 +191,12 @@ class RuleItem extends Rule
         }
 
         // 合并分组参数
-        $option = $this->mergeGroupOptions();
-
-        $url = $this->urlSuffixCheck($request, $url, $option);
+        $option  = $this->getOption();
+        $pattern = $this->getPattern();
+        $url     = $this->urlSuffixCheck($request, $url, $option);
 
         if (is_null($match)) {
-            $match = $this->match($url, $option, $completeMatch);
+            $match = $this->match($url, $option, $pattern, $completeMatch);
         }
 
         if (false !== $match) {
@@ -220,20 +248,20 @@ class RuleItem extends Rule
      * @access private
      * @param  string    $url URL地址
      * @param  array     $option    路由参数
-     * @param  bool      $completeMatch   路由是否完全匹配
+     * @param  array     $pattern   变量规则
+     * @param  bool      $completeMatch   是否完全匹配
      * @return array|false
      */
-    private function match(string $url, array $option, bool $completeMatch)
+    private function match(string $url, array $option, array $pattern, bool $completeMatch)
     {
         if (isset($option['complete_match'])) {
             $completeMatch = $option['complete_match'];
         }
 
-        $depr    = $this->router->config('pathinfo_depr');
-        $pattern = array_merge($this->parent->getPattern(), $this->pattern);
+        $depr = $this->router->config('pathinfo_depr');
 
         // 检查完整规则定义
-        if (isset($pattern['__url__']) && !preg_match(0 === strpos($pattern['__url__'], '/') ? $pattern['__url__'] : '/^' . $pattern['__url__'] . '/', str_replace('|', $depr, $url))) {
+        if (isset($pattern['__url__']) && !preg_match(0 === strpos($pattern['__url__'], '/') ? $pattern['__url__'] : '/^' . $pattern['__url__'] . ($completeMatch ? '$' : '') . '/', str_replace('|', $depr, $url))) {
             return false;
         }
 
@@ -264,7 +292,7 @@ class RuleItem extends Rule
             $regex = $this->buildRuleRegex($rule, $matches[0], $pattern, $option, $completeMatch);
 
             try {
-                if (!preg_match('/^' . $regex . ($completeMatch ? '$' : '') . '/u', $url, $match)) {
+                if (!preg_match('/^' . $regex . '/u', $url, $match)) {
                     return false;
                 }
             } catch (\Exception $e) {
